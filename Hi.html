@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MiniIDE — VS-like</title>
+<style>
+    :root{
+        --bg:#1e1e2e; --panel:#252533; --accent:#007acc; --muted:#9aa3b2; --text:#dfe7ef;
+        --sidebar-width:260px; --status-height:24px; --term-height:160px;
+        --font: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:linear-gradient(#14141a,#0f1115);font-family:var(--font);color:var(--text);}
+    .app{display:flex;height:100vh;overflow:hidden}
+    /* Sidebar */
+    .sidebar{width:var(--sidebar-width);background:linear-gradient(180deg,var(--panel),#201f2b);padding:12px 10px;border-right:1px solid rgba(255,255,255,0.03);display:flex;flex-direction:column;gap:12px}
+    .brand{display:flex;align-items:center;gap:10px;padding:6px 8px;color:var(--text);font-weight:600}
+    .brand .logo{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),#00d4ff);border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;color:#042;}
+    .search{display:flex;padding:6px;border-radius:6px;background:rgba(255,255,255,0.02);align-items:center}
+    .search input{flex:1;background:transparent;border:0;color:var(--muted);outline:none;padding:6px;font-size:13px}
+    .explorer{flex:1;overflow:auto;padding-right:6px}
+    .folder{font-size:12px;color:var(--muted);margin:6px 0 4px 6px}
+    .file{padding:6px 8px;border-radius:5px;color:var(--text);display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer}
+    .file:hover{background:rgba(255,255,255,0.02)}
+    .file .name{font-size:13px}
+    .file .meta{font-size:11px;color:var(--muted)}
+    .sidebar-bottom{display:flex;gap:8px}
+    .btn{background:transparent;border:1px solid rgba(255,255,255,0.03);padding:8px;border-radius:6px;color:var(--muted);cursor:pointer;font-size:13px}
+    /* Editor area */
+    .workspace{flex:1;display:flex;flex-direction:column;min-width:0}
+    .toolbar{height:44px;background:linear-gradient(180deg,transparent,rgba(0,0,0,0.05));display:flex;align-items:center;padding:6px 12px;gap:8px;border-bottom:1px solid rgba(255,255,255,0.02)}
+    .tabs{display:flex;gap:6px;align-items:center;flex:1;overflow:auto;padding-bottom:2px}
+    .tab{padding:8px 12px;background:rgba(0,0,0,0.25);border-radius:6px;color:var(--muted);cursor:pointer;display:flex;gap:8px;align-items:center;font-size:13px}
+    .tab.active{background:linear-gradient(90deg,rgba(0,0,0,0.35),rgba(255,255,255,0.02));color:var(--text);box-shadow:0 2px 6px rgba(0,0,0,0.4)}
+    .actions{display:flex;gap:8px}
+    .action{background:transparent;border:0;color:var(--muted);cursor:pointer;padding:8px;border-radius:6px}
+    .main{display:flex;flex:1;min-height:0;overflow:hidden}
+    .editor-pane{flex:1;display:flex;flex-direction:column;min-width:0}
+    .editor{display:flex;flex:1;overflow:auto;min-width:0}
+    .gutter{width:56px;background:rgba(0,0,0,0.12);padding:8px 6px;color:var(--muted);text-align:right;font-size:12px;user-select:none;overflow:hidden}
+    .code{flex:1;padding:12px 16px 24px 16px;background:transparent;outline:none;white-space:pre;overflow:auto;font-size:13px;line-height:1.5}
+    .code:focus{box-shadow:inset 0 0 0 1px rgba(0,0,0,0.12)}
+    .preview{width:420px;border-left:1px solid rgba(255,255,255,0.02);background:linear-gradient(180deg,#0b0b10,#0f1115);display:flex;flex-direction:column}
+    .preview iframe{flex:1;border:0;background:white}
+    .preview .head{height:36px;padding:6px 8px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.02);color:var(--muted);font-size:13px}
+    /* Status & Terminal */
+    .status{height:var(--status-height);display:flex;align-items:center;padding:4px 10px;background:linear-gradient(180deg,transparent,rgba(0,0,0,0.05));border-top:1px solid rgba(255,255,255,0.02);gap:10px;color:var(--muted);font-size:12px}
+    .terminal{height:var(--term-height);background:#0b0b0f;border-top:1px solid rgba(255,255,255,0.03);color:#cfd8e3;display:flex;flex-direction:column}
+    .term-body{flex:1;padding:8px 12px;overflow:auto;font-family:var(--font);font-size:13px}
+    .term-input{display:flex;border-top:1px solid rgba(255,255,255,0.02)}
+    .term-input input{flex:1;padding:8px;border:0;background:transparent;color:var(--text);outline:none;padding-left:12px}
+    .muted{color:var(--muted)}
+    .badge{background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:999px;font-size:12px;color:var(--muted)}
+    /* small */
+    ::-webkit-scrollbar{height:10px;width:10px}
+    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.06);border-radius:6px}
+    .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+    <div class="sidebar" id="sidebar">
+        <div class="brand"><div class="logo">MC</div> MiniIDE</div>
+        <div class="search"><input id="search" placeholder="Search files..." /></div>
+        <div class="explorer" id="explorer">
+            <div class="folder">WORKSPACE</div>
+            <!-- files inserted here -->
+        </div>
+        <div class="sidebar-bottom">
+            <button class="btn" id="newFile">New File</button>
+            <button class="btn" id="toggleSidebar">Toggle</button>
+        </div>
+    </div>
+
+    <div class="workspace">
+        <div class="toolbar">
+            <div class="tabs" id="tabs"></div>
+            <div class="actions">
+                <button class="action" id="runBtn" title="Run (HTML preview)">Run</button>
+                <button class="action" id="saveBtn" title="Save (Ctrl+S)">Save</button>
+            </div>
+        </div>
+
+        <div class="main">
+            <div class="editor-pane">
+                <div class="editor" id="editorArea">
+                    <div class="gutter" id="gutter">1</div>
+                    <pre id="code" class="code" contenteditable="true" spellcheck="false">// Welcome to MiniIDE
+// Click files in the explorer or create a new file.
+// Ctrl+S to save, Ctrl+B sidebar, Ctrl+` toggle terminal.
+
+</pre>
+                </div>
+            </div>
+
+            <div class="preview" id="preview">
+                <div class="head"><span class="muted">Preview</span><div style="flex:1"></div><span class="badge" id="previewType">no-file</span></div>
+                <iframe id="previewFrame" sandbox="allow-scripts"></iframe>
+            </div>
+        </div>
+
+        <div class="status">
+            <div id="statusLeft">Ready</div>
+            <div style="flex:1"></div>
+            <div id="statusRight" class="muted">Ln 1 • Col 1</div>
+        </div>
+
+        <div class="terminal hidden" id="terminal">
+            <div class="term-body" id="termBody"><div class="muted">MiniIDE Terminal — type "help"</div></div>
+            <div class="term-input"><input id="termInput" placeholder="Command..." /></div>
+        </div>
+    </div>
+</div>
+
+<script>
+/* MiniIDE - single-file prototype */
+const files = {
+    "index.html": {
+        name: "index.html",
+        content: "<!doctype html>\n<html>\n  <head>\n    <meta charset=\"utf-8\">\n    <title>MiniIDE Preview</title>\n    <style>body{font-family:system-ui;padding:20px;color:#111}</style>\n  </head>\n  <body>\n    <h1>Hello from MiniIDE</h1>\n    <p>This is a live preview of index.html</p>\n  </body>\n</html>"
+    },
+    "app.js": {
+        name: "app.js",
+        content: "console.log('Hello from app.js')\n"
+    },
+    "style.css": {
+        name: "style.css",
+        content: "body{background:#fafafa}\n"
+    },
+    "README.md": {
+        name: "README.md",
+        content: "# MiniIDE\n\nA tiny web-based IDE layout prototype.\n"
+    }
+};
+
+const explorer = document.getElementById('explorer');
+const tabsEl = document.getElementById('tabs');
+const codeEl = document.getElementById('code');
+const gutter = document.getElementById('gutter');
+const previewFrame = document.getElementById('previewFrame');
+const previewType = document.getElementById('previewType');
+const statusRight = document.getElementById('statusRight');
+const term = document.getElementById('terminal');
+const termBody = document.getElementById('termBody');
+const termInput = document.getElementById('termInput');
+const sidebar = document.getElementById('sidebar');
+
+let openTabs = []; // {name, dirty}
+let active = null;
+
+// Populate explorer
+function renderExplorer(filter=''){
+    explorer.querySelectorAll('.file').forEach(n => n.remove());
+    const frag = document.createDocumentFragment();
+    Object.values(files).filter(f => f.name.includes(filter)).forEach(f=>{
+        const el = document.createElement('div');
+        el.className = 'file';
+        el.innerHTML = '<div class="name">'+f.name+'</div><div class="meta">txt</div>';
+        el.onclick = ()=>openFile(f.name);
+        frag.appendChild(el);
+    });
+    explorer.appendChild(frag);
+}
+renderExplorer();
+
+// Tabs management
+function openFile(name){
+    if(!files[name]) return;
+    // if already open, activate
+    if(openTabs.includes(name)){
+        activateTab(name);
+        return;
+    }
+    openTabs.push(name);
+    const t = document.createElement('div');
+    t.className = 'tab';
+    t.textContent = name;
+    t.dataset.name = name;
+    t.onclick = ()=>activateTab(name);
+    const close = document.createElement('span');
+    close.textContent = '✕';
+    close.style.marginLeft='8px'; close.style.opacity='0.6'; close.style.cursor='pointer';
+    close.onclick = (e)=>{ e.stopPropagation(); closeTab(name); };
+    t.appendChild(close);
+    tabsEl.appendChild(t);
+    activateTab(name);
+}
+
+function activateTab(name){
+    active = name;
+    tabsEl.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.name===name));
+    codeEl.textContent = files[name].content;
+    updateGutter();
+    updateStatus();
+    updatePreviewBadge();
+}
+
+function closeTab(name){
+    openTabs = openTabs.filter(n=>n!==name);
+    const t = tabsEl.querySelector(`[data-name="${name}"]`);
+    if(t) t.remove();
+    if(active===name){
+        active = openTabs[openTabs.length-1] || null;
+        if(active) activateTab(active);
+        else { codeEl.textContent=''; updateGutter(); updateStatus(); updatePreviewBadge(); }
+    }
+}
+
+// New File
+document.getElementById('newFile').onclick = ()=>{
+    let i=1; let nm;
+    do{ nm = `untitled-${i++}.txt` } while(files[nm]);
+    files[nm]={name:nm,content:''};
+    renderExplorer();
+    openFile(nm);
+};
+
+// Save
+document.getElementById('saveBtn').onclick = saveActive;
+function saveActive(){
+    if(!active) return;
+    files[active].content = codeEl.textContent;
+    setStatus('Saved');
+    updatePreviewIfNeeded();
+}
+
+// Run preview
+document.getElementById('runBtn').onclick = ()=> {
+    updatePreviewIfNeeded(true);
+};
+
+// Update gutter (line numbers)
+function updateGutter(){
+    const lines = codeEl.textContent.split('\n').length;
+    gutter.textContent = Array.from({length:lines},(_,i)=>i+1).join('\n');
+}
+codeEl.addEventListener('input', ()=>{
+    updateGutter();
+    setStatus('Editing', 1200);
+    updateCursor();
+});
+
+// Cursor pos
+function updateCursor(){
+    const sel = window.getSelection();
+    if(!sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    const pre = document.createRange();
+    pre.selectNodeContents(codeEl);
+    pre.setEnd(range.startContainer, range.startOffset);
+    const chars = pre.toString();
+    const line = chars.split('\n').length;
+    const col = chars.split('\n').pop().length + 1;
+    statusRight.textContent = `Ln ${line} • Col ${col}`;
+}
+
+// Status
+let statusTimeout;
+function setStatus(msg, ms=2000){
+    const s = document.getElementById('statusLeft');
+    s.textContent = msg;
+    clearTimeout(statusTimeout);
+    if(ms) statusTimeout = setTimeout(()=>s.textContent='Ready', ms);
+}
+
+// Preview
+function updatePreviewBadge(){
+    if(!active){ previewType.textContent='no-file'; return; }
+    const ext = active.split('.').pop().toLowerCase();
+    previewType.textContent = ext;
+}
+function updatePreviewIfNeeded(force=false){
+    if(!active) return;
+    const ext = active.split('.').pop().toLowerCase();
+    if(ext==='html'){
+        const html = files[active].content;
+        const blob = new Blob([html], {type:'text/html'});
+        const url = URL.createObjectURL(blob);
+        previewFrame.src = url;
+        setStatus('Preview updated');
+    } else if(force){
+        // show file contents in preview
+        const html = `<pre style="white-space:pre-wrap;padding:12px;color:#111">${escapeHtml(files[active].content)}</pre>`;
+        previewFrame.srcdoc = html;
+        setStatus('Preview (text)');
+    }
+}
+function escapeHtml(s){ return s.replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]); }
+
+// Terminal
+function termPrint(s, cls=''){
+    const d = document.createElement('div');
+    if(cls) d.className=cls;
+    d.textContent = s;
+    termBody.appendChild(d);
+    termBody.scrollTop = termBody.scrollHeight;
+}
+termInput.addEventListener('keydown', (e)=>{
+    if(e.key==='Enter'){ handleCmd(termInput.value.trim()); termInput.value=''; }
+});
+function handleCmd(cmd){
+    termPrint('$ ' + cmd, 'muted');
+    if(!cmd) return;
+    const [c, ...args] = cmd.split(' ');
+    if(c==='help'){
+        termPrint('Available: ls, cat <file>, echo <text>, clear, help');
+    } else if(c==='ls'){
+        Object.keys(files).forEach(f=>termPrint(f));
+    } else if(c==='cat'){
+        const fn = args[0];
+        if(files[fn]) termPrint(files[fn].content);
+        else termPrint('File not found: '+fn);
+    } else if(c==='echo'){
+        termPrint(args.join(' '));
+    } else if(c==='clear'){
+        termBody.innerHTML='';
+    } else {
+        termPrint('Unknown command: '+c);
+    }
+}
+
+// Search
+document.getElementById('search').addEventListener('input', (e)=>{
+    renderExplorer(e.target.value);
+});
+
+// Editor interactions
+codeEl.addEventListener('keyup', updateCursor);
+codeEl.addEventListener('click', updateCursor);
+window.addEventListener('keydown', (e)=>{
+    if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s'){ e.preventDefault(); saveActive(); }
+    if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='b'){ e.preventDefault(); sidebar.classList.toggle('hidden'); }
+    if((e.ctrlKey||e.metaKey) && e.key==='`'){ e.preventDefault(); term.classList.toggle('hidden'); if(!term.classList.contains('hidden')) termInput.focus(); }
+});
+
+// Initial open index.html
+openFile('index.html');
+
+// simple click to focus editor if not focused
+document.addEventListener('keydown', (e)=>{ if(!term.contains(document.activeElement)) codeEl.focus(); });
+
+// update preview on load
+updatePreviewIfNeeded();
+
+// small helper: click on preview to open source in editor
+previewFrame.addEventListener('dblclick', ()=>{
+    if(active) openFile(active);
+});
+
+// Accessibility: focus styles
+codeEl.addEventListener('focus', ()=>codeEl.style.boxShadow='inset 0 0 0 1px rgba(0,0,0,0.08)');
+codeEl.addEventListener('blur', ()=>codeEl.style.boxShadow='none');
+
+// basic autosave every 8s
+setInterval(()=>{ if(active) files[active].content = codeEl.textContent; }, 8000);
+
+</script>
+</body>
+</html>
